@@ -212,6 +212,8 @@ count = _LOCAL_MESSAGE_COUNTS[user.id] = (
 )
 
 await message.reply_text(f"You sent (#{count}):\n{message.text}")
+     
+
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
