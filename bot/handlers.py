@@ -161,6 +161,7 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif text == MENU_PING:
         await ping(update, context)
 
+
 async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     user = update.effective_user
@@ -168,53 +169,49 @@ async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if message is None or not message.text or user is None:
         return
 
-    match = INSTAGRAM_RE.search(message.text)
+match = INSTAGRAM_RE.search(message.text)
 
-    if match:
+if match:
         shortcode = match.group(1)
         await message.reply_text("⏳ Пытаюсь получить публикацию Instagram...")
+ try:
+ with tempfile.TemporaryDirectory() as folder:
+     info, files = await asyncio.to_thread(
+         download_instagram_post, shortcode, folder
+     )
 
-        try:
-            with tempfile.TemporaryDirectory() as folder:
-                info, files = await asyncio.to_thread(
-                    download_instagram_post, shortcode, folder
-                )
+     if not files:
+         await message.reply_text(
+             "Не удалось найти медиафайлы в этой публикации."
+         )
+         return
+         await message.reply_text(info[:1000])
+         for path in files[:10]:
+             with path.open("rb") as media:
+                 if path.suffix.lower() == ".mp4":
+                     await message.reply_video(video=media)
+                 else:
+                     await message.reply_photo(photo=media)
 
-                if not files:
-                    await message.reply_text(
-                        "Не удалось найти медиафайлы в этой публикации."
-                    )
-                    return
+     return
+ except Exception:
+     logger.exception("Instagram download failed")
+     await message.reply_text(
+         "Не удалось получить публикацию. Возможно, она закрыта "
+         "или Instagram временно ограничил доступ. Попробуй позже."
+     )
+     return
 
-                await message.reply_text(info[:1000])
+client = context.bot_data.get(REDIS_KEY)
 
-                for path in files[:10]:
-                    with path.open("rb") as media:
-                        if path.suffix.lower() == ".mp4":
-                            await message.reply_video(video=media)
-                        else:
-                            await message.reply_photo(photo=media)
+if client is not None:
+    count = await cache.increment_message_count(client, user.id)
+else:
+count = _LOCAL_MESSAGE_COUNTS[user.id] = (
+    _LOCAL_MESSAGE_COUNTS.get(user.id, 0) + 1
+)
 
-            return
-
-        except Exception:
-            logger.exception("Instagram download failed")
-            await message.reply_text(
-                "Не удалось получить публикацию. Возможно, она закрыта "
-                "или Instagram временно ограничил доступ. Попробуй позже."
-            )
-            return
-
-    client = context.bot_data.get(REDIS_KEY)
-
-    if client is not None:
-        count = await cache.increment_message_count(client, user.id)
-    else:
-        count = _LOCAL_MESSAGE_COUNTS[user.id] = (
-            _LOCAL_MESSAGE_COUNTS.get(user.id, 0) + 1
-        )
-
-    await message.reply_text(f"You sent (#{count}):\n{message.text}")
+await message.reply_text(f"You sent (#{count}):\n{message.text}")
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
