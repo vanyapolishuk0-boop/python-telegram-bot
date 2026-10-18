@@ -24,6 +24,34 @@ logger = logging.getLogger(__name__)
 INSTAGRAM_RE = re.compile(
     r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)"
 )
+def download_instagram_post(shortcode: str, folder: str):
+    loader = instaloader.Instaloader(
+        download_comments=False,
+        save_metadata=False,
+        compress_json=False,
+    )
+
+    post = instaloader.Post.from_shortcode(loader.context, shortcode)
+    loader.download_post(post, target=folder)
+
+    files = sorted(
+        path for path in Path(folder).iterdir()
+        if path.is_file()
+        and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".mp4"}
+    )
+
+    if post.typename == "GraphVideo":
+        videos = [path for path in files if path.suffix.lower() == ".mp4"]
+        if videos:
+            files = videos
+
+    info = (
+        f"Автор: @{post.owner_username}\n"
+        f"Описание: {post.caption or 'Нет описания'}\n"
+        f"Оригинал: https://www.instagram.com/p/{shortcode}/"
+    )
+
+    return info, files
 
 # Keys used to read shared connections from Application.bot_data.
 DB_KEY = "db"
@@ -133,20 +161,59 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif text == MENU_PING:
         await ping(update, context)
 
-
 async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     user = update.effective_user
+
     if message is None or not message.text or user is None:
         return
 
-    # Track how many messages each user has sent using a Redis counter, falling
-    # back to an in-memory counter when Redis is unavailable.
+    match = INSTAGRAM_RE.search(message.text)
+
+    if match:
+        shortcode = match.group(1)
+        await message.reply_text("⏳ Пытаюсь получить публикацию Instagram...")
+
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                info, files = await asyncio.to_thread(
+                    download_instagram_post, shortcode, folder
+                )
+
+                if not files:
+                    await message.reply_text(
+                        "Не удалось найти медиафайлы в этой публикации."
+                    )
+                    return
+
+                await message.reply_text(info[:1000])
+
+                for path in files[:10]:
+                    with path.open("rb") as media:
+                        if path.suffix.lower() == ".mp4":
+                            await message.reply_video(video=media)
+                        else:
+                            await message.reply_photo(photo=media)
+
+            return
+
+        except Exception:
+            logger.exception("Instagram download failed")
+            await message.reply_text(
+                "Не удалось получить публикацию. Возможно, она закрыта "
+                "или Instagram временно ограничил доступ. Попробуй позже."
+            )
+            return
+
     client = context.bot_data.get(REDIS_KEY)
+
     if client is not None:
         count = await cache.increment_message_count(client, user.id)
     else:
-        count = _LOCAL_MESSAGE_COUNTS[user.id] = _LOCAL_MESSAGE_COUNTS.get(user.id, 0) + 1
+        count = _LOCAL_MESSAGE_COUNTS[user.id] = (
+            _LOCAL_MESSAGE_COUNTS.get(user.id, 0) + 1
+        )
+
     await message.reply_text(f"You sent (#{count}):\n{message.text}")
 
 
