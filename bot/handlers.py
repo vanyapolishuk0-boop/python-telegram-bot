@@ -1,3 +1,8 @@
+import re
+import tempfile
+from pathlib import Path
+
+import instaloader
 """Telegram update handlers."""
 
 import logging
@@ -107,6 +112,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
+    async def echo_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if message is None or not message.text:
         return
 
