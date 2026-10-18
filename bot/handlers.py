@@ -6,6 +6,12 @@ import instaloader
 """Telegram update handlers."""
 
 import logging
+import asyncio
+import re
+import tempfile
+from pathlib import Path
+
+import instaloader
 
 from telegram import ReplyKeyboardMarkup, Update
 from telegram.error import Conflict, NetworkError, TimedOut
@@ -15,6 +21,9 @@ from bot import cache, db
 
 
 logger = logging.getLogger(__name__)
+INSTAGRAM_RE = re.compile(
+    r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)"
+)
 
 # Keys used to read shared connections from Application.bot_data.
 DB_KEY = "db"
