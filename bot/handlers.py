@@ -39,13 +39,13 @@ def download_instagram_post(shortcode: str, folder: str):
         storyitem_metadata_txt_pattern="",
         max_connection_attempts=3,
     )
-
-        post = 
+       post = 
     instaloader.Post.from_shortcode(
-        loader.context, shortcode
+            loader.context, shortcode
     )
 
-        loader.download_post(post, target="instagram")
+    loader.download_post(post, target="instagram")
+    
     files = sorted(
         path for path in target_dir.rglob("*")
         if path.is_file()
