@@ -43,7 +43,9 @@ def download_instagram_post(shortcode: str, folder: str):
         loader.context, shortcode
     )
 
-    loader.download_post(post, target="instagram")
+    success = loader.download_post(post, target="instagram")
+print(f"INSTAGRAM DEBUG: success={success}, folder={target_dir}")
+print(f"INSTAGRAM DEBUG: files={list(target_dir.rglob('*'))}")
 
     files = sorted(
         path for path in target_dir.rglob("*")
