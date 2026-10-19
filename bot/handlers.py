@@ -8,7 +8,7 @@ from telegram.constants import ParseMode
 import yt_dlp
 
 # ================== НАСТРОЙКИ ==================
-BOT_TOKEN = "СЮДА_ВСТАВЬ_СВОЙ_ТОКЕН"
+BOT_TOKEN = "8904813799:AAFupFe_z8_rHpiR8IYJHAEVzskKJFrIblU"
 DOWNLOAD_DIR = Path("downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
@@ -212,7 +212,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & \~filters.COMMAND, download_media))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_media))
 
     print("Бот запущен...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
