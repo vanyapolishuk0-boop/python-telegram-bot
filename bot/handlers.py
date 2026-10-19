@@ -25,17 +25,28 @@ INSTAGRAM_RE = re.compile(
     r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)"
 )
 def download_instagram_post(shortcode: str, folder: str):
+    target_dir = Path(folder).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
     loader = instaloader.Instaloader(
+        dirname_pattern=str(target_dir / "{target}"),
+        filename_pattern="{shortcode}",
         download_comments=False,
         save_metadata=False,
         compress_json=False,
+        post_metadata_txt_pattern="",
+        storyitem_metadata_txt_pattern="",
+        max_connection_attempts=3,
     )
 
-    post = instaloader.Post.from_shortcode(loader.context, shortcode)
-    loader.download_post(post, target=folder)
+    post = instaloader.Post.from_shortcode(
+        loader.context, shortcode
+    )
+
+    loader.download_post(post, target="instagram")
 
     files = sorted(
-        path for path in Path(folder).iterdir()
+        path for path in target_dir.rglob("*")
         if path.is_file()
         and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".mp4"}
     )
