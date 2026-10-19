@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 INSTAGRAM_RE = re.compile(
     r"https?://(?:www\.)?instagram\.com/(?:p|reel|tv)/([A-Za-z0-9_-]+)"
 )
+
 def download_instagram_post(shortcode: str, folder: str):
     target_dir = Path(folder).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
