@@ -40,14 +40,12 @@ def download_instagram_post(shortcode: str, folder: str):
         max_connection_attempts=3,
     )
 
-    post = instaloader.Post.from_shortcode(
+        post = 
+    instaloader.Post.from_shortcode(
         loader.context, shortcode
     )
 
-    success = loader.download_post(post, target="instagram")
-        print(f"INSTAGRAM DEBUG: success={success}, folder={target_dir}")
-        print(f"INSTAGRAM DEBUG: files={list(target_dir.rglob('*'))}")
-
+        loader.download_post(post, target="instagram")
     files = sorted(
         path for path in target_dir.rglob("*")
         if path.is_file()
