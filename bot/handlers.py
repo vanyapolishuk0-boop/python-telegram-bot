@@ -288,4 +288,4 @@ def register_handlers(application: Application) -> None:
     # block=False: скачивание одного пользователя не задерживает остальных
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, download_media, block=False)
-    )
+)
