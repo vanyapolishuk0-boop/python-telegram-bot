@@ -9,7 +9,7 @@ import yt_dlp
 
 # ================== НАСТРОЙКИ ==================
 BOT_TOKEN = "8904813799:AAFupFe_z8_rHpiR8IYJHAEVzskKJFrIblU"
-DOWNLOAD_DIR = Path("downloads")
+DOWNLOAD_DIR = Path("/tmp/downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 MAX_FILE_SIZE = 49 * 1024 * 1024  # \~49 МБ
