@@ -8,7 +8,7 @@ from telegram.constants import ParseMode
 import yt_dlp
 
 # ================== НАСТРОЙКИ ==================
-BOT_TOKEN = "8904813799:AAFupFe_z8_rHpiR8IYJHAEVzskKJFrIblU"
+BOT_TOKEN = "8904813799:AAH4EEooqMBpCKFeMeUKhGAmTP8uKvhrnyc"
 DOWNLOAD_DIR = Path("/tmp/downloads")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
