@@ -1,13 +1,16 @@
+"""Обработчики Telegram-бота: скачивание медиа по ссылкам."""
+
 import asyncio
 import html
 import logging
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 import yt_dlp
-from telegram import InputMediaPhoto, InputMediaVideo, Message, Update
+from telegram import BotCommand, InputMediaPhoto, InputMediaVideo, Message, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -17,12 +20,15 @@ from telegram.ext import (
     filters,
 )
 
+# Ключи для application.bot_data (их ожидает main.py)
+DB_KEY = "db"
+REDIS_KEY = "redis"
+
 # ================== НАСТРОЙКИ ==================
-BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 # Необязательно: путь к cookies.txt (помогает с Instagram и приватным контентом)
 COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
 
-DOWNLOAD_DIR = Path("/tmp/downloads")
+DOWNLOAD_DIR = Path(tempfile.gettempdir()) / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_FILE_SIZE = 49 * 1024 * 1024  # лимит Telegram для ботов ~50 МБ
@@ -32,12 +38,11 @@ MAX_PARALLEL = 3                  # сколько скачиваний одно
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 URL_RE = re.compile(r"https?://\S+")
+
+# Таймауты для загрузки больших файлов в Telegram
+UPLOAD_TIMEOUTS = {"read_timeout": 60, "write_timeout": 120, "connect_timeout": 30}
 # ==============================================
 
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
 logger = logging.getLogger(__name__)
 
 download_slots = asyncio.Semaphore(MAX_PARALLEL)
@@ -142,13 +147,16 @@ async def send_files(message: Message, files: list[Path], caption: str) -> int:
         if len(chunk) == 1:
             kind, f = chunk[0]
             if kind == "photo":
-                await message.reply_photo(f, caption=cap, parse_mode=ParseMode.HTML)
+                await message.reply_photo(
+                    f, caption=cap, parse_mode=ParseMode.HTML, **UPLOAD_TIMEOUTS
+                )
             else:
                 await message.reply_video(
                     f,
                     caption=cap,
                     parse_mode=ParseMode.HTML,
                     supports_streaming=True,
+                    **UPLOAD_TIMEOUTS,
                 )
         else:
             group = []
@@ -157,13 +165,15 @@ async def send_files(message: Message, files: list[Path], caption: str) -> int:
                 group.append(
                     cls(f, caption=cap if n == 0 else None, parse_mode=ParseMode.HTML)
                 )
-            await message.reply_media_group(group)
+            await message.reply_media_group(group, **UPLOAD_TIMEOUTS)
         sent += len(chunk)
 
     for f in docs:
         cap = None if caption_used else caption
         caption_used = True
-        await message.reply_document(f, caption=cap, parse_mode=ParseMode.HTML)
+        await message.reply_document(
+            f, caption=cap, parse_mode=ParseMode.HTML, **UPLOAD_TIMEOUTS
+        )
         sent += 1
 
     return sent
@@ -240,26 +250,42 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def main():
-    if not BOT_TOKEN:
-        raise SystemExit("Переменная окружения BOT_TOKEN не задана")
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Ловит все необработанные ошибки: пишет в лог и отвечает по-русски."""
+    logger.error("Необработанная ошибка", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "Что-то пошло не так 😔 Попробуй ещё раз чуть позже."
+            )
+        except Exception:
+            pass
 
-    app = (
-        Application.builder()
-        .token(BOT_TOKEN)
-        .concurrent_updates(True)  # иначе бот обслуживает одного пользователя за раз
-        .read_timeout(60)
-        .write_timeout(120)        # загрузка больших видео
-        .build()
+
+async def set_bot_commands(application: Application) -> None:
+    """Русское меню команд и описание бота (вместо настройки в @BotFather)."""
+    try:
+        await application.bot.set_my_commands(
+            [
+                BotCommand("start", "Запустить бота"),
+                BotCommand("help", "Как пользоваться"),
+            ]
+        )
+        await application.bot.set_my_short_description(
+            "Скачиваю фото и видео по ссылке из Instagram, TikTok, YouTube и др."
+        )
+        await application.bot.set_my_description(
+            "Пришли ссылку на пост — я скачаю фото или видео и отправлю тебе.\n\n"
+            "Работает с Instagram, TikTok, YouTube, Twitter/X и многими другими сайтами."
+        )
+    except Exception:
+        logger.exception("Не удалось настроить команды и описание бота")
+
+
+def register_handlers(application: Application) -> None:
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    # block=False: скачивание одного пользователя не задерживает остальных
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, download_media, block=False)
     )
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_media))
-
-    print("Бот запущен...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
-
-
-if __name__ == "__main__":
-    main()
