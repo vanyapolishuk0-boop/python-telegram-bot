@@ -41,9 +41,16 @@ URL_RE = re.compile(r"https?://\S+")
 
 # Таймауты для загрузки больших файлов в Telegram
 UPLOAD_TIMEOUTS = {"read_timeout": 60, "write_timeout": 120, "connect_timeout": 30}
+
+# ffmpeg нужен, чтобы склеивать видео и звук; без него берём готовый файл
+HAS_FFMPEG = shutil.which("ffmpeg") is not None
 # ==============================================
 
 logger = logging.getLogger(__name__)
+
+# httpx пишет в лог полный URL запроса, а в нём токен бота — глушим эти логи
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 download_slots = asyncio.Semaphore(MAX_PARALLEL)
 
@@ -96,13 +103,20 @@ def build_ydl_opts(temp_dir: Path) -> dict:
         "retries": 3,
         "fragment_retries": 3,
         "socket_timeout": 30,
-        "merge_output_format": "mp4",  # нужен ffmpeg
+    }
+    if HAS_FFMPEG:
+        opts["merge_output_format"] = "mp4"
         # Предпочитаем форматы, которые влезают в лимит Telegram
-        "format": (
+        opts["format"] = (
             f"bv*[filesize<?{MAX_FILE_SIZE}]+ba/"
             f"b[filesize<?{MAX_FILE_SIZE}]/b"
-        ),
-    }
+        )
+    else:
+        # Без ffmpeg склеивать нельзя — берём готовый одиночный файл
+        opts["format"] = (
+            f"b[ext=mp4][filesize<?{MAX_FILE_SIZE}]/"
+            f"b[filesize<?{MAX_FILE_SIZE}]/b"
+        )
     if COOKIES_FILE and Path(COOKIES_FILE).is_file():
         opts["cookiefile"] = COOKIES_FILE
     return opts
