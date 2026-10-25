@@ -204,7 +204,7 @@ def run_gallery_dl(url: str, temp_dir: Path):
     if COOKIES_FILE and Path(COOKIES_FILE).is_file():
         cmd += ["--cookies", COOKIES_FILE]
     cmd.append(url)
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"gallery-dl: {result.stderr[-300:]}")
 
