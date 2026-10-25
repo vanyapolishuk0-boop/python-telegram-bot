@@ -457,6 +457,14 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+async def sticker_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    s = update.message.sticker
+    await update.message.reply_text(
+        f"file_id стикера:\n<code>{s.file_id}</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Ловит все необработанные ошибки: пишет в лог и отвечает по-русски."""
     logger.error("Необработанная ошибка", exc_info=context.error)
@@ -494,6 +502,7 @@ async def set_bot_commands(application: Application) -> None:
 def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, sticker_id))
     application.add_handler(CommandHandler("audio", audio_command, block=False))
     application.add_handler(
         CallbackQueryHandler(audio_button, pattern=r"^a:", block=False)
@@ -501,4 +510,4 @@ def register_handlers(application: Application) -> None:
     # block=False: скачивание одного пользователя не задерживает остальных
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, download_media, block=False)
-)
+    )
