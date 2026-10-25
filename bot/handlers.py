@@ -7,13 +7,24 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 import yt_dlp
-from telegram import BotCommand, InputMediaPhoto, InputMediaVideo, Message, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+    InputMediaVideo,
+    Message,
+    Update,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -39,6 +50,9 @@ PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 URL_RE = re.compile(r"https?://\S+")
 
+# Сайты, которые бот не обрабатывает
+BLOCKED_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
+
 # Таймауты для загрузки больших файлов в Telegram
 UPLOAD_TIMEOUTS = {"read_timeout": 60, "write_timeout": 120, "connect_timeout": 30}
 
@@ -60,10 +74,16 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 download_slots = asyncio.Semaphore(MAX_PARALLEL)
 
 
+def is_blocked(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == h or host.endswith("." + h) for h in BLOCKED_HOSTS)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Привет! 👋\n\n"
-        "Просто пришли мне ссылку на пост — я скачаю медиа и отправлю тебе.\n\n"
+        "Просто пришли мне ссылку на пост — я скачаю медиа и отправлю тебе.\n"
+        "А если нужен только звук, нажми кнопку «Скачать аудио» после видео.\n\n"
         "Используй /help, чтобы посмотреть все возможности."
     )
 
@@ -72,16 +92,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "<b>Доступные команды:</b>\n\n"
         "/start — перезапустить бота\n"
-        "/help — показать это сообщение\n\n"
+        "/help — показать это сообщение\n"
+        "/audio ссылка — скачать только звук (MP3)\n\n"
         "<b>Как пользоваться:</b>\n"
         "Просто отправь ссылку на пост из:\n"
         "• Instagram\n"
         "• TikTok\n"
-        "• YouTube\n"
         "• Twitter / X\n"
-        "• и многих других\n\n"
+        "• и некоторых других сайтов\n\n"
         "Бот скачает фото или видео и пришлёт их тебе.\n"
-        "Карусели тоже поддерживаются (до 10 файлов)."
+        "Карусели тоже поддерживаются (до 10 файлов).\n\n"
+        "После видео появится кнопка «Скачать аудио» — "
+        "бот пришлёт музыку из ролика в формате MP3."
     )
     await update.message.reply_text(help_text, parse_mode=ParseMode.HTML)
 
@@ -126,9 +148,39 @@ def build_ydl_opts(temp_dir: Path) -> dict:
     if COOKIES_FILE and Path(COOKIES_FILE).is_file():
         opts["cookiefile"] = COOKIES_FILE
     return opts
-    
+
+
+def build_audio_opts(temp_dir: Path) -> dict:
+    opts = {
+        "outtmpl": str(temp_dir / "%(id)s.%(ext)s"),
+        "format": "bestaudio/best",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+        "ffmpeg_location": FFMPEG_PATH,
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
+            }
+        ],
+    }
+    if COOKIES_FILE and Path(COOKIES_FILE).is_file():
+        opts["cookiefile"] = COOKIES_FILE
+    return opts
+
+
 def run_download(url: str, temp_dir: Path):
     with yt_dlp.YoutubeDL(build_ydl_opts(temp_dir)) as ydl:
+        return ydl.extract_info(url, download=True)
+
+
+def run_audio_download(url: str, temp_dir: Path):
+    with yt_dlp.YoutubeDL(build_audio_opts(temp_dir)) as ydl:
         return ydl.extract_info(url, download=True)
 
 
@@ -141,6 +193,23 @@ def extract_title(info) -> str | None:
         if first:
             title = first.get("title") or first.get("description")
     return title
+
+
+def friendly_error(error: Exception) -> str:
+    error_text = str(error).lower()
+    if "private" in error_text or "login" in error_text or "403" in error_text:
+        return (
+            "Контент приватный или требует авторизации.\n"
+            "Instagram часто блокирует скачивание без входа в аккаунт."
+        )
+    if "unsupported" in error_text or "no video" in error_text:
+        return "Этот тип ссылки пока не поддерживается или контент недоступен."
+    if "instagram" in error_text:
+        return (
+            "Instagram временно заблокировал скачивание.\n"
+            "Попробуй позже или другую ссылку."
+        )
+    return "Не удалось скачать это медиа 😔\nПроверь ссылку или попробуй другую."
 
 
 async def send_files(message: Message, files: list[Path], caption: str) -> int:
@@ -198,12 +267,103 @@ async def send_files(message: Message, files: list[Path], caption: str) -> int:
     return sent
 
 
+# ---------- Аудио ----------
+
+def remember_url(context: ContextTypes.DEFAULT_TYPE, key: str, url: str) -> None:
+    """Запоминаем ссылку для кнопки (callback_data ограничен 64 байтами)."""
+    store = context.bot_data.setdefault("audio_urls", {})
+    store[key] = url
+    while len(store) > 200:
+        store.pop(next(iter(store)))
+
+
+async def send_audio(message: Message, url: str) -> None:
+    """Скачивает звук по ссылке и отправляет MP3."""
+    if is_blocked(url):
+        await message.reply_text("YouTube не поддерживается.")
+        return
+    if not HAS_FFMPEG:
+        await message.reply_text("Для скачивания аудио на сервере нужен ffmpeg.")
+        return
+
+    status = await message.reply_text("Достаю звук... 🎧")
+    temp_dir = DOWNLOAD_DIR / f"audio_{message.chat_id}_{uuid.uuid4().hex[:8]}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        async with download_slots:
+            info = await asyncio.to_thread(run_audio_download, url, temp_dir)
+
+        files = sorted(temp_dir.glob("*.mp3"))
+        if not files:
+            raise RuntimeError("Не удалось получить аудио")
+        audio = files[0]
+        if audio.stat().st_size > MAX_FILE_SIZE:
+            await status.edit_text("Аудио слишком большое для отправки (лимит 49 МБ).")
+            return
+
+        title = extract_title(info)
+        performer = None
+        if isinstance(info, dict):
+            performer = info.get("artist") or info.get("uploader")
+        await status.edit_text("Отправляю аудио...")
+        await message.reply_audio(
+            audio,
+            title=(title or "Аудио")[:64],
+            performer=(performer or "")[:64] or None,
+            caption=create_caption(url),
+            parse_mode=ParseMode.HTML,
+            **UPLOAD_TIMEOUTS,
+        )
+        await status.delete()
+
+    except Exception as e:
+        logger.exception("Ошибка при скачивании аудио %s", url)
+        try:
+            await status.edit_text(friendly_error(e))
+        except Exception:
+            await message.reply_text(friendly_error(e))
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+async def audio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = " ".join(context.args) if context.args else ""
+    if not text and update.message.reply_to_message:
+        text = update.message.reply_to_message.text or ""
+    match = URL_RE.search(text)
+    if not match:
+        await update.message.reply_text(
+            "Напиши команду со ссылкой, например:\n/audio https://..."
+        )
+        return
+    await send_audio(update.message, match.group(0))
+
+
+async def audio_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    url = context.bot_data.get("audio_urls", {}).get(query.data)
+    if not url:
+        await query.answer("Ссылка устарела, пришли её заново.", show_alert=True)
+        return
+    await query.answer()
+    await send_audio(query.message, url)
+
+
+# ---------- Скачивание медиа ----------
+
 async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = URL_RE.search(update.message.text or "")
     if not match:
         await update.message.reply_text("Пришли, пожалуйста, ссылку на пост.")
         return
     url = match.group(0)
+
+    if is_blocked(url):
+        await update.message.reply_text(
+            "YouTube не поддерживается. Пришли ссылку из Instagram или TikTok."
+        )
+        return
 
     status_msg = await update.message.reply_text("Скачиваю... ⏳")
     temp_dir = DOWNLOAD_DIR / f"{update.effective_user.id}_{update.message.message_id}"
@@ -233,33 +393,24 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"Скачано файлов: {len(files)}. Отправляю...")
         sent = await send_files(update.message, files, create_caption(url, title))
 
-        if sent:
-            await status_msg.delete()
-        else:
+        if not sent:
             await status_msg.edit_text("Не удалось отправить ни одного файла.")
+        elif HAS_FFMPEG and any(f.suffix.lower() in VIDEO_EXT for f in files):
+            # Вместо удаления превращаем статус в кнопку «Скачать аудио»
+            key = f"a:{status_msg.chat_id}:{status_msg.message_id}"
+            remember_url(context, key, url)
+            await status_msg.edit_text(
+                "🎵 Нужен только звук?",
+                reply_markup=InlineKeyboardMarkup(
+                    [[InlineKeyboardButton("🎵 Скачать аудио", callback_data=key)]]
+                ),
+            )
+        else:
+            await status_msg.delete()
 
     except Exception as e:
-        error_text = str(e).lower()
         logger.exception("Ошибка при обработке %s", url)
-
-        if "private" in error_text or "login" in error_text or "403" in error_text:
-            msg = (
-                "Контент приватный или требует авторизации.\n"
-                "Instagram часто блокирует скачивание без входа в аккаунт."
-            )
-        elif "unsupported" in error_text or "no video" in error_text:
-            msg = "Этот тип ссылки пока не поддерживается или контент недоступен."
-        elif "instagram" in error_text:
-            msg = (
-                "Instagram временно заблокировал скачивание.\n"
-                "Попробуй позже или другую ссылку."
-            )
-        else:
-            msg = (
-                "Не удалось скачать это медиа 😔\n"
-                "Проверь ссылку или попробуй другую."
-            )
-
+        msg = friendly_error(e)
         try:
             await status_msg.edit_text(msg)
         except Exception:
@@ -288,14 +439,16 @@ async def set_bot_commands(application: Application) -> None:
             [
                 BotCommand("start", "Запустить бота"),
                 BotCommand("help", "Как пользоваться"),
+                BotCommand("audio", "Скачать только звук по ссылке"),
             ]
         )
         await application.bot.set_my_short_description(
-            "Скачиваю фото и видео по ссылке из Instagram, TikTok, YouTube и др."
+            "Скачиваю фото, видео и музыку по ссылке из Instagram, TikTok и др."
         )
         await application.bot.set_my_description(
             "Пришли ссылку на пост — я скачаю фото или видео и отправлю тебе.\n\n"
-            "Работает с Instagram, TikTok, YouTube, Twitter/X и многими другими сайтами."
+            "Могу достать музыку из видео в MP3.\n"
+            "Работает с Instagram, TikTok, Twitter/X и другими сайтами."
         )
     except Exception:
         logger.exception("Не удалось настроить команды и описание бота")
@@ -304,6 +457,10 @@ async def set_bot_commands(application: Application) -> None:
 def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("audio", audio_command, block=False))
+    application.add_handler(
+        CallbackQueryHandler(audio_button, pattern=r"^a:", block=False)
+    )
     # block=False: скачивание одного пользователя не задерживает остальных
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, download_media, block=False)
