@@ -137,6 +137,8 @@ def build_ydl_opts(temp_dir: Path) -> dict:
         "retries": 3,
         "fragment_retries": 3,
         "socket_timeout": 30,
+        "ignoreerrors": True,
+        "max_filesize": MAX_FILE_SIZE,
     }
     if HAS_FFMPEG:
         opts["ffmpeg_location"] = FFMPEG_PATH
