@@ -406,7 +406,8 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         sticker_msg = await update.message.reply_sticker(STICKER_LOADING)
     except Exception:
-        logger.exception("Не удалось отправить стикер")try:
+        logger.exception("Не удалось отправить стикер")
+    try:
         async with download_slots:
             info = None
             if "instagram.com/p/" in url:
