@@ -4,3 +4,4 @@ asyncpg>=0.30,<0.31
 redis>=5.0,<6.0
 instaloader
 yt-dlp
+imageio-ffmpeg
