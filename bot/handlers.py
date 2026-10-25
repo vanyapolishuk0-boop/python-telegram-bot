@@ -53,6 +53,9 @@ MAX_FILE_SIZE = 49 * 1024 * 1024  # лимит Telegram для ботов ~50 М
 MAX_ITEMS = 10                    # максимум файлов за одну ссылку
 MAX_PARALLEL = 3                  # сколько скачиваний одновременно
 
+# Стикер, который показывается, пока бот скачивает
+STICKER_LOADING = "CAACAgIAAxkBAAP5at4iU67sExMlWjX2xVoefOOdxBQAAhABAAJSiZEjxEjx-swcBvM9BA"
+
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 URL_RE = re.compile(r"https?://\S+")
@@ -399,7 +402,11 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp_dir = DOWNLOAD_DIR / f"{update.effective_user.id}_{update.message.message_id}"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
+        sticker_msg = None
     try:
+        sticker_msg = await update.message.reply_sticker(STICKER_LOADING)
+    except Exception:
+        logger.exception("Не удалось отправить стикер")try:
         async with download_slots:
             info = None
             if "instagram.com/p/" in url:
@@ -453,8 +460,13 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await update.message.reply_text(msg)
 
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        finally:
+            if sticker_msg:
+                try:
+                    await sticker_msg.delete()
+            except Exception:
+                pass
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 async def sticker_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
