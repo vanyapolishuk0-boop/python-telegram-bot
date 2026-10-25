@@ -8,6 +8,8 @@ import re
 import shutil
 import tempfile
 import uuid
+import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
