@@ -55,6 +55,7 @@ MAX_PARALLEL = 3                  # сколько скачиваний одно
 
 # Стикер, который показывается, пока бот скачивает
 STICKER_LOADING = "CAACAgIAAxkBAAP5at4iU67sExMlWjX2xVoefOOdxBQAAhABAAJSiZEjxEjx-swcBvM9BA"
+BOT_NAME = "Nafig_Link"
 
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
@@ -90,11 +91,49 @@ def is_blocked(url: str) -> bool:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    name = html.escape(update.effective_user.first_name or "друг")
+    text = (
+        f"👋 Привет, <b>{name}</b>!\n\n"
+        f"Я — <b>{html.escape(BOT_NAME)}</b>.\n"
+        "Скачиваю фото и видео из <b>Instagram</b> и <b>TikTok</b>.\n\n"
+        "📸 Фото и карусели\n"
+        "🎬 Видео и reels\n"
+        "🎵 Музыка из видео в MP3\n\n"
+        "Просто пришли мне ссылку на пост 👇"
+    )
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📖 Как пользоваться", callback_data="help")],
+            [InlineKeyboardButton("🎵 Как скачать аудио", callback_data="audio_help")],
+        ]
+    )
     await update.message.reply_text(
-        "Привет! 👋\n\n"
-        "Просто пришли мне ссылку на пост — я скачаю медиа и отправлю тебе.👀\n"
-        "А если нужен только звук, нажми кнопку «Скачать аудио» после видео.\n\n"
-        "Используй /help, чтобы посмотреть все возможности."
+        text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+    )
+
+
+async def help_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        "<b>Как пользоваться:</b>\n\n"
+        "1️⃣ Скопируй ссылку на пост из Instagram или TikTok\n"
+        "2️⃣ Отправь её мне\n"
+        "3️⃣ Получи фото или видео\n\n"
+        "Карусели приходят альбомом (до 10 файлов).",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def audio_help_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.message.reply_text(
+        "<b>Как скачать аудио:</b>\n\n"
+        "🎵 Под каждым видео появится кнопка «Скачать аудио». "
+        "Нажми её, и я пришлю музыку в формате MP3.\n\n"
+        "Или напиши /audio и ссылку на видео.",
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -108,7 +147,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Просто отправь ссылку на пост из:\n"
         "• Instagram\n"
         "• TikTok\n"
-        "• Twitter / X\n"
         "• и некоторых других сайтов\n\n"
         "Бот скачает фото или видео и пришлёт их тебе.\n"
         "Карусели тоже поддерживаются (до 10 файлов).\n\n"
@@ -514,6 +552,8 @@ async def set_bot_commands(application: Application) -> None:
 def register_handlers(application: Application) -> None:
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CallbackQueryHandler(help_button, pattern=r"^help$"))
+    application.add_handler(CallbackQueryHandler(audio_help_button, pattern=r"^audio_help$"))
     application.add_handler(MessageHandler(filters.Sticker.ALL, sticker_id))
     application.add_handler(CommandHandler("audio", audio_command, block=False))
     application.add_handler(
