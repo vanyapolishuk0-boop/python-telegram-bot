@@ -109,7 +109,7 @@ def build_ydl_opts(temp_dir: Path) -> dict:
         "fragment_retries": 3,
         "socket_timeout": 30,
     }
-if HAS_FFMPEG:
+    if HAS_FFMPEG:
         opts["ffmpeg_location"] = FFMPEG_PATH
         opts["merge_output_format"] = "mp4"
         # Предпочитаем форматы, которые влезают в лимит Telegram
@@ -126,8 +126,7 @@ if HAS_FFMPEG:
     if COOKIES_FILE and Path(COOKIES_FILE).is_file():
         opts["cookiefile"] = COOKIES_FILE
     return opts
-
-
+    
 def run_download(url: str, temp_dir: Path):
     with yt_dlp.YoutubeDL(build_ydl_opts(temp_dir)) as ydl:
         return ydl.extract_info(url, download=True)
