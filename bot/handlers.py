@@ -394,7 +394,14 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with download_slots:
-            info = await asyncio.to_thread(run_download, url, temp_dir)
+            info = None
+            if "instagram.com/p/" in url:
+                try:
+                    await asyncio.to_thread(run_gallery_dl, url, temp_dir)
+                except Exception:
+                    logger.exception("gallery-dl не справился, пробую yt-dlp")
+            if not any(temp_dir.glob("*")):
+                info = await asyncio.to_thread(run_download, url, temp_dir)
 
         title = extract_title(info)
         all_files = sorted(
