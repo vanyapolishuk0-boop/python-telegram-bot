@@ -43,7 +43,12 @@ URL_RE = re.compile(r"https?://\S+")
 UPLOAD_TIMEOUTS = {"read_timeout": 60, "write_timeout": 120, "connect_timeout": 30}
 
 # ffmpeg нужен, чтобы склеивать видео и звук; без него берём готовый файл
-HAS_FFMPEG = shutil.which("ffmpeg") is not None
+try:
+    import imageio_ffmpeg
+    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
+except Exception:
+    FFMPEG_PATH = shutil.which("ffmpeg")
+HAS_FFMPEG = bool(FFMPEG_PATH)
 # ==============================================
 
 logger = logging.getLogger(__name__)
