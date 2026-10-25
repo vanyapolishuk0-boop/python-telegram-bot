@@ -44,6 +44,11 @@ COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
 DOWNLOAD_DIR = Path(tempfile.gettempdir()) / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+COOKIES_TEXT = os.getenv("COOKIES_TEXT", "").strip()
+if COOKIES_TEXT and not COOKIES_FILE:
+    COOKIES_FILE = str(Path(tempfile.gettempdir()) / "cookies.txt")
+    Path(COOKIES_FILE).write_text(COOKIES_TEXT + "\n", encoding="utf-8")
+    
 MAX_FILE_SIZE = 49 * 1024 * 1024  # лимит Telegram для ботов ~50 МБ
 MAX_ITEMS = 10                    # максимум файлов за одну ссылку
 MAX_PARALLEL = 3                  # сколько скачиваний одновременно
