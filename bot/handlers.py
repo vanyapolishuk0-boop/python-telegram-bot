@@ -402,7 +402,7 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp_dir = DOWNLOAD_DIR / f"{update.effective_user.id}_{update.message.message_id}"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-        sticker_msg = None
+    sticker_msg = None
     try:
         sticker_msg = await update.message.reply_sticker(STICKER_LOADING)
     except Exception:
