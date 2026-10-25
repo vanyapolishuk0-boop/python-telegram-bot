@@ -460,14 +460,13 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(msg)
         except Exception:
             await update.message.reply_text(msg)
-
-        finally:
-            if sticker_msg:
-                try:
-                    await sticker_msg.delete()
+    finally:
+        if sticker_msg:
+            try:
+                await sticker_msg.delete()
             except Exception:
                 pass
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 async def sticker_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
