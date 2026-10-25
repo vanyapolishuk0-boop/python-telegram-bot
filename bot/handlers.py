@@ -93,7 +93,7 @@ def is_blocked(url: str) -> bool:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = html.escape(update.effective_user.first_name or "друг")
     text = (
-        f"👋 Привет, <b>{Я Nafig69 и это мой бот}</b>!\n\n"
+        f"👋 Привет, <b>{name}</b>!\n\n"
         f"Я — <b>{html.escape(BOT_NAME)}</b>.\n"
         "Скачиваю фото и видео из <b>Instagram</b> и <b>TikTok</b>.\n\n"
         "📸 Фото и карусели\n"
