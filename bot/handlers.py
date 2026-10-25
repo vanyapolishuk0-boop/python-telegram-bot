@@ -191,6 +191,22 @@ def run_audio_download(url: str, temp_dir: Path):
         return ydl.extract_info(url, download=True)
 
 
+def run_gallery_dl(url: str, temp_dir: Path):
+    """Фото и карусели Instagram через gallery-dl."""
+    cmd = [
+        sys.executable, "-m", "gallery_dl",
+        "-D", str(temp_dir),
+        "--no-mtime",
+        "-o", "filename={num:>03}_{filename}.{extension}",
+    ]
+    if COOKIES_FILE and Path(COOKIES_FILE).is_file():
+        cmd += ["--cookies", COOKIES_FILE]
+    cmd.append(url)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    if result.returncode != 0:
+        raise RuntimeError(f"gallery-dl: {result.stderr[-300:]}")
+
+
 def extract_title(info) -> str | None:
     if not isinstance(info, dict):
         return None
