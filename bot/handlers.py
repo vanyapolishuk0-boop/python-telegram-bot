@@ -276,7 +276,12 @@ async def send_files(message: Message, files: list[Path], caption: str) -> int:
             for n, (kind, f) in enumerate(chunk):
                 cls = InputMediaPhoto if kind == "photo" else InputMediaVideo
                 group.append(
-                    cls(f, caption=cap if n == 0 else None, parse_mode=ParseMode.HTML)
+                    cls(
+                        f.read_bytes(),
+                        filename=f.name,
+                        caption=cap if n == 0 else None,
+                        parse_mode=ParseMode.HTML,
+                    )
                 )
             await message.reply_media_group(group, **UPLOAD_TIMEOUTS)
         sent += len(chunk)
