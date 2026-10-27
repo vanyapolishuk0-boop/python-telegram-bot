@@ -578,4 +578,40 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def set_bot_commands(application: Application) -> None:
-    """Русское меню команд и описание бот
+    """Русское меню команд и описание бота (вместо настройки в @BotFather)."""
+    try:
+        await application.bot.set_my_commands(
+            [
+                BotCommand("start", "Запустить бота"),
+                BotCommand("help", "Как пользоваться"),
+                BotCommand("audio", "Скачать только звук по ссылке"),
+            ]
+        )
+        await application.bot.set_my_short_description(
+            "Скачиваю фото, видео и музыку по ссылке из Instagram, TikTok и др."
+        )
+        await application.bot.set_my_description(
+            "Пришли ссылку на пост — я скачаю фото или видео и отправлю тебе.\n\n"
+            "Могу достать музыку из видео в MP3.\n"
+            "Работает с Instagram, TikTok, Twitter/X и другими сайтами."
+        )
+    except Exception:
+        logger.exception("Не удалось настроить команды и описание бота")
+
+
+def register_handlers(application: Application) -> None:
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.Sticker.ALL, sticker_id))
+    application.add_handler(CallbackQueryHandler(help_button, pattern=r"^help$"))
+    application.add_handler(
+        CallbackQueryHandler(audio_help_button, pattern=r"^audio_help$")
+    )
+    application.add_handler(CommandHandler("audio", audio_command, block=False))
+    application.add_handler(
+        CallbackQueryHandler(audio_button, pattern=r"^a:", block=False)
+    )
+    # block=False: скачивание одного пользователя не задерживает остальных
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, download_media, block=False)
+)
