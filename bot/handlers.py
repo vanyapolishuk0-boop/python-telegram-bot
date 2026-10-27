@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+import json
 import os
 import re
 import shutil
@@ -157,13 +158,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def create_caption(url: str, title: str | None = None) -> str:
-    """Подпись к медиа. Всё экранируется, чтобы HTML не ломался."""
+    """Подпись к медиа: описание поста и ссылка. Всё экранируется для HTML."""
     link = f'<a href="{html.escape(url, quote=True)}">🔗 Оригинальный пост</a>'
-    title = (title or "").strip()
-    if title and title.lower() not in {"na", "none"}:
-        if len(title) > 120:
-            title = title[:117] + "..."
-        return f"<b>{html.escape(title)}</b>\n\n{link}"
+    text = (title or "").strip()
+    if text and text.lower() not in {"na", "none"}:
+        if len(text) > 800:
+            text = text[:797] + "..."
+        return f"{html.escape(text)}\n\n{link}"
     return link
 
 
@@ -234,12 +235,13 @@ def run_audio_download(url: str, temp_dir: Path):
         return ydl.extract_info(url, download=True)
 
 
-def run_gallery_dl(url: str, temp_dir: Path):
-    """Фото и карусели Instagram через gallery-dl."""
+def run_gallery_dl(url: str, temp_dir: Path) -> str | None:
+    """Фото и карусели Instagram через gallery-dl. Возвращает описание поста."""
     cmd = [
         sys.executable, "-m", "gallery_dl",
         "-D", str(temp_dir),
         "--no-mtime",
+        "--write-metadata",
         "-o", "filename={num:>03}_{filename}.{extension}",
     ]
     if COOKIES_FILE and Path(COOKIES_FILE).is_file():
@@ -248,16 +250,33 @@ def run_gallery_dl(url: str, temp_dir: Path):
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"gallery-dl: {result.stderr[-300:]}")
+    return pop_gallery_description(temp_dir)
+
+
+def pop_gallery_description(temp_dir: Path) -> str | None:
+    """Достаёт описание из .json-файлов gallery-dl и удаляет их."""
+    description = None
+    for meta in sorted(temp_dir.glob("*.json")):
+        if description is None:
+            try:
+                data = json.loads(meta.read_text(encoding="utf-8"))
+                description = (
+                    data.get("description") or data.get("caption") or ""
+                ).strip() or None
+            except Exception:
+                pass
+        meta.unlink(missing_ok=True)
+    return description
 
 
 def extract_title(info) -> str | None:
     if not isinstance(info, dict):
         return None
-    title = info.get("title") or info.get("description")
+    title = info.get("description") or info.get("title")
     if not title and info.get("entries"):
         first = next((e for e in info["entries"] if e), None)
         if first:
-            title = first.get("title") or first.get("description")
+            title = first.get("description") or first.get("title")
     return title
 
 
@@ -363,17 +382,19 @@ async def send_audio(message: Message, url: str) -> None:
 
     try:
         async with download_slots:
-            info = await asyncio.to_thread(run_audio_download, url, temp_dir)
+            info = None
+            gallery_desc = None
+            if "instagram.com/p/" in url:
+                try:
+                    gallery_desc = await asyncio.to_thread(
+                        run_gallery_dl, url, temp_dir
+                    )
+                except Exception:
+                    logger.exception("gallery-dl не справился, пробую yt-dlp")
+            if not any(temp_dir.glob("*")):
+                info = await asyncio.to_thread(run_download, url, temp_dir)
 
-        files = sorted(temp_dir.glob("*.mp3"))
-        if not files:
-            raise RuntimeError("Не удалось получить аудио")
-        audio = files[0]
-        if audio.stat().st_size > MAX_FILE_SIZE:
-            await status.edit_text("Аудио слишком большое для отправки (лимит 49 МБ).")
-            return
-
-        title = extract_title(info)
+        title = extract_title(info) or gallery_desc
         performer = None
         if isinstance(info, dict):
             performer = info.get("artist") or info.get("uploader")
