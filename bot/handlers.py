@@ -2,15 +2,15 @@
 
 import asyncio
 import html
-import logging
 import json
+import logging
 import os
 import re
 import shutil
-import tempfile
-import uuid
 import subprocess
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -45,17 +45,20 @@ COOKIES_FILE = os.getenv("COOKIES_FILE", "").strip()
 DOWNLOAD_DIR = Path(tempfile.gettempdir()) / "downloads"
 DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+# Cookies текстом из переменной Railway COOKIES_TEXT
 COOKIES_TEXT = os.getenv("COOKIES_TEXT", "").strip()
 if COOKIES_TEXT and not COOKIES_FILE:
     COOKIES_FILE = str(Path(tempfile.gettempdir()) / "cookies.txt")
     Path(COOKIES_FILE).write_text(COOKIES_TEXT + "\n", encoding="utf-8")
-    
+
 MAX_FILE_SIZE = 49 * 1024 * 1024  # лимит Telegram для ботов ~50 МБ
 MAX_ITEMS = 10                    # максимум файлов за одну ссылку
 MAX_PARALLEL = 3                  # сколько скачиваний одновременно
 
 # Стикер, который показывается, пока бот скачивает
 STICKER_LOADING = "CAACAgIAAxkBAAP5at4iU67sExMlWjX2xVoefOOdxBQAAhABAAJSiZEjxEjx-swcBvM9BA"
+
+# Название бота (показывается в приветствии)
 BOT_NAME = "Nafig_Link"
 
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
@@ -148,6 +151,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Просто отправь ссылку на пост из:\n"
         "• Instagram\n"
         "• TikTok\n"
+        "• Twitter / X\n"
         "• и некоторых других сайтов\n\n"
         "Бот скачает фото или видео и пришлёт их тебе.\n"
         "Карусели тоже поддерживаются (до 10 файлов).\n\n"
@@ -253,20 +257,43 @@ def run_gallery_dl(url: str, temp_dir: Path) -> str | None:
     return pop_gallery_description(temp_dir)
 
 
+def find_text(data: dict) -> str | None:
+    """Ищет текст описания поста под разными именами полей."""
+    for key in ("description", "caption", "title", "text"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            value = value.get("text")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
 def pop_gallery_description(temp_dir: Path) -> str | None:
     """Достаёт описание из .json-файлов gallery-dl и удаляет их."""
     description = None
-    for meta in sorted(temp_dir.glob("*.json")):
+    metas = sorted(temp_dir.glob("*.json"))
+    if not metas:
+        logger.warning("gallery-dl: файлов с метаданными не найдено")
+    for meta in metas:
         if description is None:
             try:
                 data = json.loads(meta.read_text(encoding="utf-8"))
-                description = (
-                    data.get("description") or data.get("caption") or ""
-                ).strip() or None
+                logger.info("gallery-dl поля метаданных: %s", sorted(data.keys()))
+                description = find_text(data)
             except Exception:
-                pass
+                logger.exception("Не удалось прочитать метаданные gallery-dl")
         meta.unlink(missing_ok=True)
+    logger.info("Описание поста найдено: %s", bool(description))
     return description
+
+
+def media_files(temp_dir: Path) -> list[Path]:
+    """Скачанные файлы без служебных .json."""
+    return sorted(
+        f
+        for f in temp_dir.glob("*")
+        if f.is_file() and f.stat().st_size > 0 and f.suffix.lower() != ".json"
+    )
 
 
 def extract_title(info) -> str | None:
@@ -382,21 +409,20 @@ async def send_audio(message: Message, url: str) -> None:
 
     try:
         async with download_slots:
-            info = None
-            gallery_desc = None
-            if "instagram.com/p/" in url:
-                try:
-                    gallery_desc = await asyncio.to_thread(
-                        run_gallery_dl, url, temp_dir
-                    )
-                except Exception:
-                    logger.exception("gallery-dl не справился, пробую yt-dlp")
-            if not any(temp_dir.glob("*")):
-                info = await asyncio.to_thread(run_download, url, temp_dir)
+            info = await asyncio.to_thread(run_audio_download, url, temp_dir)
 
-        title = extract_title(info) or gallery_desc
+        files = sorted(temp_dir.glob("*.mp3"))
+        if not files:
+            raise RuntimeError("Не удалось получить аудио")
+        audio = files[0]
+        if audio.stat().st_size > MAX_FILE_SIZE:
+            await status.edit_text("Аудио слишком большое для отправки (лимит 49 МБ).")
+            return
+
+        title = None
         performer = None
         if isinstance(info, dict):
+            title = info.get("track") or info.get("title")
             performer = info.get("artist") or info.get("uploader")
         await status.edit_text("Отправляю аудио...")
         await message.reply_audio(
@@ -466,21 +492,23 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sticker_msg = await update.message.reply_sticker(STICKER_LOADING)
     except Exception:
         logger.exception("Не удалось отправить стикер")
+
     try:
         async with download_slots:
             info = None
+            gallery_desc = None
             if "instagram.com/p/" in url:
                 try:
-                    await asyncio.to_thread(run_gallery_dl, url, temp_dir)
+                    gallery_desc = await asyncio.to_thread(
+                        run_gallery_dl, url, temp_dir
+                    )
                 except Exception:
                     logger.exception("gallery-dl не справился, пробую yt-dlp")
-            if not any(temp_dir.glob("*")):
+            if not media_files(temp_dir):
                 info = await asyncio.to_thread(run_download, url, temp_dir)
 
-        title = extract_title(info)
-        all_files = sorted(
-            f for f in temp_dir.glob("*") if f.is_file() and f.stat().st_size > 0
-        )
+        title = extract_title(info) or gallery_desc
+        all_files = media_files(temp_dir)
         if not all_files:
             raise RuntimeError("Не удалось скачать ни одного файла")
 
@@ -519,6 +547,7 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(msg)
         except Exception:
             await update.message.reply_text(msg)
+
     finally:
         if sticker_msg:
             try:
@@ -549,38 +578,4 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def set_bot_commands(application: Application) -> None:
-    """Русское меню команд и описание бота (вместо настройки в @BotFather)."""
-    try:
-        await application.bot.set_my_commands(
-            [
-                BotCommand("start", "Запустить бота"),
-                BotCommand("help", "Как пользоваться"),
-                BotCommand("audio", "Скачать только звук по ссылке"),
-            ]
-        )
-        await application.bot.set_my_short_description(
-            "Скачиваю фото, видео и музыку по ссылке из Instagram, TikTok и др."
-        )
-        await application.bot.set_my_description(
-            "Пришли ссылку на пост — я скачаю фото или видео и отправлю тебе.\n\n"
-            "Могу достать музыку из видео в MP3.\n"
-            "Работает с Instagram, TikTok, Twitter/X и другими сайтами."
-        )
-    except Exception:
-        logger.exception("Не удалось настроить команды и описание бота")
-
-
-def register_handlers(application: Application) -> None:
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CallbackQueryHandler(help_button, pattern=r"^help$"))
-    application.add_handler(CallbackQueryHandler(audio_help_button, pattern=r"^audio_help$"))
-    application.add_handler(MessageHandler(filters.Sticker.ALL, sticker_id))
-    application.add_handler(CommandHandler("audio", audio_command, block=False))
-    application.add_handler(
-        CallbackQueryHandler(audio_button, pattern=r"^a:", block=False)
-    )
-    # block=False: скачивание одного пользователя не задерживает остальных
-    application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, download_media, block=False)
-    )
+    """Русское меню команд и описание бот
