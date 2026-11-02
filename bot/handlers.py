@@ -246,6 +246,7 @@ def run_gallery_dl(url: str, temp_dir: Path) -> str | None:
         "-D", str(temp_dir),
         "--no-mtime",
         "--write-metadata",
+        "-o", "audio=false",
         "-o", "filename={num:>03}_{filename}.{extension}",
     ]
     if COOKIES_FILE and Path(COOKIES_FILE).is_file():
@@ -506,6 +507,14 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logger.exception("gallery-dl не справился, пробую yt-dlp")
             if not media_files(temp_dir):
                 info = await asyncio.to_thread(run_download, url, temp_dir)
+            if "tiktok.com" in url and not media_files(temp_dir):
+                # Фото-посты TikTok yt-dlp не умеет, пробуем gallery-dl
+                try:
+                    gallery_desc = await asyncio.to_thread(
+                        run_gallery_dl, url, temp_dir
+                    )
+                except Exception:
+                    logger.exception("gallery-dl не справился с TikTok")
 
         title = extract_title(info) or gallery_desc
         all_files = media_files(temp_dir)
