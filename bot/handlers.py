@@ -13,6 +13,14 @@ import tempfile
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+import subprocess
+import tempfile
+from pathlib import Path
+from pydub import AudioSegment
+from shazamio import Shazam
+shazam = Shazam()
+if HAS_FFMPEG:
+    AudioSegment.converter = FFMPEG_PATH
 
 import yt_dlp
 from telegram import (
@@ -586,6 +594,45 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 
+def cut_audio_sample(src, dst):
+    cmd = [FFMPEG_PATH, "-y", "-i", str(src), "-t", "25",
+           "-vn", "-ac", "1", "-ar", "44100", str(dst)]
+    subprocess.run(cmd, capture_output=True, check=True)
+
+
+async def recognize_music(update, context):
+    msg = update.message
+    media = msg.voice or msg.audio or msg.video or msg.video_note
+    if not media:
+        return
+    if media.file_size and media.file_size > 20 * 1024 * 1024:
+        await msg.reply_text("Файл больше 20 МБ, Telegram не даёт боту его скачать. Пришли фрагмент покороче.")
+        return
+    status = await msg.reply_text("🎧 Слушаю...")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "input"
+            wav = Path(tmp) / "sample.wav"
+            tg_file = await media.get_file()
+            await tg_file.download_to_drive(src)
+            await asyncio.to_thread(cut_audio_sample, src, wav)
+            recognize = getattr(shazam, "recognize", None) or shazam.recognize_song
+            result = await recognize(str(wav))
+        track = result.get("track")
+        if not track:
+            await status.edit_text("😕 Не смог узнать песню. Попробуй фрагмент, где музыка слышна лучше.")
+            return
+        text = f"🎶 {track.get('subtitle', '')} — {track.get('title', '')}"
+        url = track.get("url")
+        markup = None
+        if url:
+            markup = InlineKeyboardMarkup([[InlineKeyboardButton("Открыть в Shazam", url=url)]])
+        await status.edit_text(text, reply_markup=markup)
+    except Exception:
+        logger.exception("Ошибка распознавания музыки")
+        await status.edit_text("Не получилось распознать. Попробуй ещё раз.")
+
+
 async def set_bot_commands(application: Application) -> None:
     """Русское меню команд и описание бота (вместо настройки в @BotFather)."""
     try:
@@ -609,6 +656,9 @@ async def set_bot_commands(application: Application) -> None:
 
 
 def register_handlers(application: Application) -> None:
+    application.add_handler(MessageHandler(
+        filters.VOICE | filters.AUDIO | filters.VIDEO | filters.VIDEO_NOTE,
+        recognize_music))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.Sticker.ALL, sticker_id))
