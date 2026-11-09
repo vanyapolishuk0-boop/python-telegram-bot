@@ -59,6 +59,7 @@ if COOKIES_TEXT and not COOKIES_FILE:
     Path(COOKIES_FILE).write_text(COOKIES_TEXT + "\n", encoding="utf-8")
 
 MAX_FILE_SIZE = 49 * 1024 * 1024  # лимит Telegram для ботов ~50 МБ
+MAX_DOWNLOAD_SIZE = 300 * 1024 * 1024  # больше этого не качаем даже для сжатия
 MAX_ITEMS = 10                    # максимум файлов за одну ссылку
 MAX_PARALLEL = 3                  # сколько скачиваний одновременно
 
@@ -192,7 +193,7 @@ def build_ydl_opts(temp_dir: Path) -> dict:
         "fragment_retries": 3,
         "socket_timeout": 30,
         "ignoreerrors": True,
-        "max_filesize": MAX_FILE_SIZE,
+        "max_filesize": MAX_DOWNLOAD_SIZE,
     }
     if HAS_FFMPEG:
         opts["ffmpeg_location"] = FFMPEG_PATH
@@ -529,7 +530,20 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not all_files:
             raise RuntimeError("Не удалось скачать ни одного файла")
 
-        files = [f for f in all_files if f.stat().st_size <= MAX_FILE_SIZE]
+        files = []
+        for f in all_files:
+            if (
+                f.stat().st_size > MAX_FILE_SIZE
+                and f.suffix.lower() in VIDEO_EXT
+                and HAS_FFMPEG
+            ):
+                try:
+                    await status_msg.edit_text("Видео большое, сжимаю... 🗜")
+                    f = await asyncio.to_thread(compress_video, f)
+                except Exception:
+                    logger.exception("Не удалось сжать видео")
+            if f.stat().st_size <= MAX_FILE_SIZE:
+                files.append(f)
         skipped = len(all_files) - len(files)
         if skipped:
             await update.message.reply_text(
