@@ -610,6 +610,8 @@ async def recognize_music(update, context):
         return
     status = await msg.reply_text("🎧 Слушаю...")
     try:
+        if HAS_FFMPEG:
+            AudioSegment.converter = FFMPEG_PATH
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "input"
             wav = Path(tmp) / "sample.wav"
