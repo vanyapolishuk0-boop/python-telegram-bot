@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import yt_dlp
 from pathlib import Path
 from urllib.parse import urlparse
 import subprocess
@@ -624,11 +625,13 @@ async def recognize_music(update, context):
             await status.edit_text("😕 Не смог узнать песню. Попробуй фрагмент, где музыка слышна лучше.")
             return
         text = f"🎶 {track.get('subtitle', '')} — {track.get('title', '')}"
+        query = f"{track.get('subtitle', '')} {track.get('title', '')}".strip()
+        context.bot_data[f"music_{status.message_id}"] = query
+        rows = [[InlineKeyboardButton("⬇️ Скачать MP3", callback_data=f"m:{status.message_id}")]]
         url = track.get("url")
-        markup = None
         if url:
-            markup = InlineKeyboardMarkup([[InlineKeyboardButton("Открыть в Shazam", url=url)]])
-        await status.edit_text(text, reply_markup=markup)
+            rows.append([InlineKeyboardButton("Открыть в Shazam", url=url)])
+        await status.edit_text(text, reply_markup=InlineKeyboardMarkup(rows))
     except Exception:
         logger.exception("Ошибка распознавания музыки")
         await status.edit_text("Не получилось распознать. Попробуй ещё раз.")
@@ -655,11 +658,66 @@ async def set_bot_commands(application: Application) -> None:
     except Exception:
         logger.exception("Не удалось настроить команды и описание бота")
 
+def run_music_search(query, temp_dir):
+    opts = {
+        "format": "bestaudio/best",
+        "outtmpl": str(Path(temp_dir) / "%(title).80s.%(ext)s"),
+        "noplaylist": True,
+        "quiet": True,
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+    }
+    if HAS_FFMPEG:
+        opts["ffmpeg_location"] = FFMPEG_PATH
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([f"scsearch1:{query}"])
+    files = list(Path(temp_dir).glob("*.mp3"))
+    return files[0] if files else None
 
+
+async def send_music(message, query):
+    status = await message.reply_text("🔎 Ищу трек...")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            file = await asyncio.to_thread(run_music_search, query, tmp)
+            if not file:
+                await status.edit_text("😕 Не нашёл этот трек. Попробуй другое название.")
+                return
+            if file.stat().st_size > 49 * 1024 * 1024:
+                await status.edit_text("Трек слишком большой для Telegram (лимит 50 МБ).")
+                return
+            await message.reply_audio(audio=file.read_bytes(), filename=file.name)
+        await status.delete()
+    except Exception:
+        logger.exception("Ошибка поиска музыки")
+        await status.edit_text("Не получилось скачать трек. Попробуй ещё раз.")
+
+
+async def music_command(update, context):
+    query = " ".join(context.args).strip()
+    if not query:
+        await update.message.reply_text("Напиши название, например:\n/music Imagine Dragons Believer")
+        return
+    await send_music(update.message, query)
+
+
+async def music_button(update, context):
+    q = update.callback_query
+    await q.answer()
+    query = context.bot_data.get("music_" + q.data.split(":", 1)[1])
+    if not query:
+        await q.message.reply_text("Кнопка устарела. Используй /music название")
+        return
+    await send_music(q.message, query)
 def register_handlers(application: Application) -> None:
     application.add_handler(MessageHandler(
         filters.VOICE | filters.AUDIO | filters.VIDEO | filters.VIDEO_NOTE,
         recognize_music))
+    application.add_handler(CommandHandler("music", music_command))
+    application.add_handler(CallbackQueryHandler(music_button, pattern="^m:"))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(MessageHandler(filters.Sticker.ALL, sticker_id))
