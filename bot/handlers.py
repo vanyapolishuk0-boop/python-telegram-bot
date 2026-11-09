@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 import yt_dlp
 from pathlib import Path
@@ -68,7 +69,7 @@ STICKER_LOADING = "CAACAgIAAxkBAAP5at4iU67sExMlWjX2xVoefOOdxBQAAhABAAJSiZEjxEjx-
 
 # Название бота (показывается в приветствии)
 BOT_NAME = "Nafig_Link"
-
+OWNER_ID = int(os.getenv("OWNER_ID", "0") or 0)
 PHOTO_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
 URL_RE = re.compile(r"https?://\S+")
@@ -479,7 +480,22 @@ async def audio_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------- Скачивание медиа ----------
-
+async def notify_cookies_problem(context, error):
+    text = str(error).lower()
+    if not OWNER_ID or not ("login" in text or "cookie" in text):
+        return
+    now = time.time()
+    if now - context.bot_data.get("cookies_alert", 0) < 6 * 3600:
+        return
+    context.bot_data["cookies_alert"] = now
+    try:
+        await context.bot.send_message(
+            OWNER_ID,
+            "⚠️ Cookies Instagram, похоже, протухли. Экспортируй новые и "
+            "замени переменную COOKIES_TEXT на Railway.",
+        )
+    except Exception:
+        logger.exception("Не удалось отправить уведомление владельцу")
 async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     match = URL_RE.search(update.message.text or "")
     if not match:
@@ -512,8 +528,9 @@ async def download_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     gallery_desc = await asyncio.to_thread(
                         run_gallery_dl, url, temp_dir
                     )
-                except Exception:
+                except Exception as e:
                     logger.exception("gallery-dl не справился, пробую yt-dlp")
+                    await notify_cookies_problem(context, e)
             if not media_files(temp_dir):
                 info = await asyncio.to_thread(run_download, url, temp_dir)
             if "tiktok.com" in url and not media_files(temp_dir):
