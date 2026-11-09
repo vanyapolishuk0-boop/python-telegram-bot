@@ -6,3 +6,4 @@ instaloader
 yt-dlp
 imageio-ffmpeg
 gallery-dl
+shazamio
