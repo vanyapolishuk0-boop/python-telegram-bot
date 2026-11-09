@@ -7,3 +7,4 @@ yt-dlp
 imageio-ffmpeg
 gallery-dl
 shazamio
+pydub
