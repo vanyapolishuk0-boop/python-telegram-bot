@@ -109,6 +109,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📸 Фото и карусели\n"
         "🎬 Видео и reels\n"
         "🎵 Музыка из видео в MP3\n\n"
+        "🎧 Узнаю песню по голосовому или видео\n"
         "Просто пришли мне ссылку на пост 👇"
     )
     keyboard = InlineKeyboardMarkup(
