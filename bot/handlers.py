@@ -663,6 +663,8 @@ def run_music_search(query, temp_dir):
         "format": "bestaudio/best",
         "outtmpl": str(Path(temp_dir) / "%(title).80s.%(ext)s"),
         "noplaylist": True,
+        "ignoreerrors": True,
+        "max_downloads": 1,
         "quiet": True,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
@@ -673,7 +675,11 @@ def run_music_search(query, temp_dir):
     if HAS_FFMPEG:
         opts["ffmpeg_location"] = FFMPEG_PATH
     with yt_dlp.YoutubeDL(opts) as ydl:
-        ydl.download([f"scsearch1:{query}"])
+        try:
+            ydl.download([f"scsearch5:{query}"])
+        except yt_dlp.utils.MaxDownloadsReached:
+            pass
+    
     files = list(Path(temp_dir).glob("*.mp3"))
     return files[0] if files else None
 
