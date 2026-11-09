@@ -650,7 +650,22 @@ async def recognize_music(update, context):
         logger.exception("Ошибка распознавания музыки")
         await status.edit_text("Не получилось распознать. Попробуй ещё раз.")
 
-
+def compress_video(src):
+    dst = src.with_name(src.stem + "_small.mp4")
+    for crf, width in ((30, 1280), (34, 854), (38, 640)):
+        cmd = [
+            FFMPEG_PATH, "-y", "-i", str(src),
+            "-vf", f"scale='min({width},iw)':-2",
+            "-c:v", "libx264", "-crf", str(crf), "-preset", "veryfast",
+            "-c:a", "aac", "-b:a", "96k",
+            "-movflags", "+faststart", str(dst),
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            raise RuntimeError("ffmpeg: " + r.stderr[-400:])
+        if dst.stat().st_size <= MAX_FILE_SIZE:
+            break
+    return dst
 async def set_bot_commands(application: Application) -> None:
     """Русское меню команд и описание бота (вместо настройки в @BotFather)."""
     try:
