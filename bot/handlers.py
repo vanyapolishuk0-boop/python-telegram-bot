@@ -19,8 +19,6 @@ from pathlib import Path
 from pydub import AudioSegment
 from shazamio import Shazam
 shazam = Shazam()
-if HAS_FFMPEG:
-    AudioSegment.converter = FFMPEG_PATH
 
 import yt_dlp
 from telegram import (
